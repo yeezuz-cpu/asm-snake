@@ -1,4 +1,4 @@
-; snake in assembly (nasm, windows 64 bit)
+; snake in asm. first time doing this so dont judge
 ; nasm -f win64 snake.asm -o snake.o
 ; gcc snake.o -o snake.exe
 default rel
@@ -6,8 +6,8 @@ bits 64
 
 W equ 40
 H equ 20
-ROW equ 43              ; one screen row = 42 chars + newline
-GRID equ 946            ; 43 * 22
+ROW equ 43              ; 42 chars + newline
+GRID equ 946            ; 43 * 22, dont ask me to change the board size
 
 extern GetStdHandle, WriteConsoleA, SetConsoleCursorPosition, SetConsoleCursorInfo
 extern GetAsyncKeyState, Sleep, GetTickCount, ExitProcess
@@ -43,7 +43,7 @@ main:
     call GetStdHandle
     mov [hout], rax
 
-    ; hide the cursor
+    ; hide the blinking cursor it was annoying
     mov rcx, [hout]
     lea rdx, [cursor]
     call SetConsoleCursorInfo
@@ -59,7 +59,7 @@ start:
     mov byte [lastx], 1
     mov byte [lasty], 0
 
-    ; snake starts in the middle going right
+    ; snake starts in the middle, 3 long
     lea r8, [snakex]
     lea r9, [snakey]
     mov byte [r8], 20
@@ -72,7 +72,7 @@ start:
     call newfood
 
 loop_start:
-    ; ---- keys ----
+    ; arrows AND wasd. yes its copy paste 8 times, no i dont know a better way
     ; left
     mov ecx, 0x25
     call GetAsyncKeyState
@@ -112,7 +112,7 @@ loop_start:
     jmp keys_done
 
 go_left:
-    cmp byte [lastx], 1     ; cant turn back on yourself
+    cmp byte [lastx], 1     ; no 180 turns or u die instantly
     je keys_done
     mov byte [dirx], -1
     mov byte [diry], 0
@@ -136,12 +136,12 @@ go_down:
     mov byte [diry], 1
 
 keys_done:
-    mov ecx, 0x1B           ; esc
+    mov ecx, 0x1B           ; esc key
     call GetAsyncKeyState
     test ax, 0x8000
     jnz quit
 
-    ; ---- move ----
+    ; moving the head
     movsx eax, byte [dirx]
     movsx edx, byte [diry]
     mov [lastx], al
@@ -150,11 +150,11 @@ keys_done:
     lea r8, [snakex]
     lea r9, [snakey]
     movsx ecx, byte [r8]
-    add eax, ecx            ; eax = new x
+    add eax, ecx            ; new x
     movsx ecx, byte [r9]
-    add edx, ecx            ; edx = new y
+    add edx, ecx            ; new y
 
-    ; hit a wall?
+    ; wall = dead
     cmp eax, 0
     jl dead
     cmp eax, W
@@ -164,7 +164,7 @@ keys_done:
     cmp edx, H
     jge dead
 
-    ; did we hit ourselves? (checks every segment, even the tail)
+    ; ate yourself? checks the tail too, whatever
     mov ecx, 0
 self_check:
     cmp ecx, [len]
@@ -178,7 +178,7 @@ self_next:
     jmp self_check
 self_ok:
 
-    ; ate the food?
+    ; food time
     mov r10d, 0
     cmp al, [foodx]
     jne no_food
@@ -189,7 +189,7 @@ self_ok:
     inc dword [score]
 no_food:
 
-    ; move every segment back one spot
+    ; every segment copies the one in front of it, snake brain
     mov ecx, [len]
     dec ecx
 shift:
@@ -209,10 +209,9 @@ shift_done:
     jne draw
     call newfood
 
-    ; ---- draw ----
 draw:
     lea rdi, [buf]
-    mov esi, 0              ; row
+    mov esi, 0              ; row (esi because it was free)
 draw_row:
     mov edx, 0              ; column
 draw_col:
@@ -240,12 +239,12 @@ put_char:
     cmp esi, H+2
     jl draw_row
 
-    ; footer
+    ; text at the bottom
     lea rsi, [footer]
     mov ecx, FLEN
     rep movsb
 
-    ; score digits
+    ; score digits. why do i do it this way? i dont fucking know
     mov eax, [score]
     xor edx, edx
     mov ecx, 100
@@ -261,7 +260,7 @@ put_char:
     mov [buf+GRID+8], al
     mov [buf+GRID+9], dl
 
-    ; food
+    ; food goes in the buffer
     movzx eax, byte [foody]
     inc eax
     imul eax, ROW
@@ -271,7 +270,7 @@ put_char:
     lea r10, [buf]
     mov byte [r10+rax], '*'
 
-    ; snake body, then the head on top
+    ; body first then head on top so the head doesnt get overwritten
     lea r8, [snakex]
     lea r9, [snakey]
     mov ecx, [len]
@@ -297,7 +296,7 @@ draw_done:
     inc eax
     mov byte [r10+rax], '@'
 
-    ; print it
+    ; throw it on the screen
     mov rcx, [hout]
     mov edx, 0
     call SetConsoleCursorPosition
@@ -308,7 +307,7 @@ draw_done:
     mov qword [rsp+32], 0
     call WriteConsoleA
 
-    ; get faster the more you eat
+    ; faster the more u eat. magic numbers, they felt right
     mov ecx, [score]
     cmp ecx, 30
     jle speed
@@ -324,7 +323,7 @@ speed:
 
 dead:
     mov rcx, [hout]
-    mov edx, 22*65536       ; put cursor on the footer line
+    mov edx, 22*65536       ; footer line
     call SetConsoleCursorPosition
     mov rcx, [hout]
     lea rdx, [msg]
@@ -346,7 +345,7 @@ wait_key:
     jmp wait_key
 
 quit:
-    mov dword [cursor+4], 1     ; show cursor again
+    mov dword [cursor+4], 1     ; give the cursor back
     mov rcx, [hout]
     lea rdx, [cursor]
     call SetConsoleCursorInfo
@@ -356,8 +355,8 @@ quit:
     mov ecx, 0
     call ExitProcess
 
-; pick a random spot for the food
-; (doesnt check the snake, so it can show up under it for a moment)
+; random food spot
+; doesnt check if the snake is there. sometimes the food is inside you. skill issue
 newfood:
     imul eax, [seed], 1103515245
     add eax, 12345
